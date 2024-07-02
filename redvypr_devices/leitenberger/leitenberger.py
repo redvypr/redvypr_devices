@@ -10,6 +10,7 @@ import logging
 import sys
 import pydantic
 from redvypr.data_packets import check_for_command
+from redvypr.devices.plot import XYplotWidget
 #from redvypr.redvypr_packet_statistic import do_data_statistics, create_data_statistic_dict
 
 
@@ -28,7 +29,7 @@ class DeviceBaseConfig(pydantic.BaseModel):
 
 
 class DeviceCustomConfig(pydantic.BaseModel):
-    baud: int = 4800
+    baud: int = 9600
     parity: int = serial.PARITY_NONE
     stopbits: int = serial.STOPBITS_ONE
     bytesize: int = serial.EIGHTBITS
@@ -37,20 +38,6 @@ class DeviceCustomConfig(pydantic.BaseModel):
     packetdelimiter: str = pydantic.Field(default='\n', description='The delimiter to distinuish packets')
     comport: str = ''
 
-
-config_template              = {}
-config_template['comport']   = {'type':'str'}
-config_template['baud']      = {'type':'int','default':4800}
-config_template['parity']    = {'type':'int','default':serial.PARITY_NONE}
-config_template['stopbits']  = {'type':'int','default':serial.STOPBITS_ONE}
-config_template['bytesize']  = {'type':'int','default':serial.EIGHTBITS}
-config_template['dt_poll']   = {'type':'float','default':0.05}
-config_template['chunksize'] = {'type':'int','default':1000} # The maximum amount of bytes read with one chunk
-config_template['packetdelimiter'] = {'type':'str','default':'\n'} # The maximum amount of bytes read with one chunk
-config_template['redvypr_device'] = {}
-config_template['redvypr_device']['publishes']   = True
-config_template['redvypr_device']['subscribes']  = True
-config_template['redvypr_device']['description'] = description
 redvypr_devicemodule = True
 
 def start(device_info, config={}, dataqueue=None, datainqueue=None, statusqueue=None):
@@ -105,8 +92,10 @@ def start(device_info, config={}, dataqueue=None, datainqueue=None, statusqueue=
             data = None
         if (data is not None):
             command = check_for_command(data, thread_uuid=device_info['thread_uuid'])
-            # logger.debug('Got a command: {:s}'.format(str(data)))
+            logger.debug('Got a command: {:s}'.format(str(data)))
+
             if (command is not None):
+                print('Command', command)
                 if command == 'stop':
                     serial_device.close()
                     sstr = funcname + ': Command is for me: {:s}'.format(str(command))
@@ -116,60 +105,71 @@ def start(device_info, config={}, dataqueue=None, datainqueue=None, statusqueue=
                     except:
                         pass
                     return
+                elif command == 'set':
+                    print('Set temperature')
+                    temp = data['temp']
+                    WRITE_SET_TEMP_COM = '$1WVAR0 {}'.format(temp)
+                    WRITE_SET_TEMP_COM = WRITE_SET_TEMP_COM.replace('.',',')
+                    print('Write command',WRITE_SET_TEMP_COM)
+                    serial_device.write(WRITE_SET_TEMP_COM.encode() + b' \r')
+                    time.sleep(0.1)
+                    ndata = serial_device.inWaiting()
+                    try:
+                        rawdata_tmp = serial_device.read(ndata)
+                    except Exception as e:
+                        print(e)
+                        # print('rawdata_tmp', rawdata_tmp)
 
-
-        time.sleep(dt_poll)
-        ndata = serial_device.inWaiting()
-        try:
-            rawdata_tmp = serial_device.read(ndata)
-        except Exception as e:
-            print(e)
-            #print('rawdata_tmp', rawdata_tmp)
-
-        nread = len(rawdata_tmp)
-        if True:
-            if nread > 0:
-                bytes_read  += nread
-                rawdata_all += rawdata_tmp
-                #print('rawdata_all',rawdata_all)
-                FLAG_CHUNK = len(rawdata_all) > chunksize
-                if(FLAG_CHUNK):
-                    data               = {'t':time.time()}
-                    data['data']       = rawdata_all
-                    data['comport']    = serial_device.name
-                    data['bytes_read'] = bytes_read
-                    dataqueue.put(data)
-                    rawdata_all = b''
-
-                # Check if the newpacket character in the data
-                if(FLAG_DELIMITER):
-                    FLAG_CHAR = newpacket in rawdata_all
-                    if(FLAG_CHAR):
-                        rawdata_split = rawdata_all.split(newpacket)
-                        #print('rawdata_all', rawdata_all)
-                        if(len(rawdata_split)>1): # If len==0 then character was not found
-                            for ind in range(len(rawdata_split)-1): # The last packet does not have the split character
-                                sentences_read += 1
-                                raw = rawdata_split[ind] + newpacket # reconstruct the data
-                                #print('raw', raw)
-                                data               = {'t':time.time()}
-                                data['data']       = raw
-                                data['comport']    = serial_device.name
-                                data['bytes_read'] = bytes_read
-                                data['sentences_read'] = sentences_read
-                                dataqueue.put(data)
-
-                            rawdata_all = rawdata_split[-1]
-        
-            
-            
         if((time.time() - t_update) > dt_update):
-            dbytes = bytes_read - bytes_read_old
-            bytes_read_old = bytes_read
-            bps = dbytes/dt_update# bytes per second
-            #print('ndata',len(rawdata_all),'rawdata',rawdata_all,type(rawdata_all))
-            #print('bps',bps)
+            READ_SET_TEMP_COM = b'$1RVAR0 \r'
+            print('Writing', READ_SET_TEMP_COM)
+            serial_device.write(READ_SET_TEMP_COM)
+            time.sleep(0.1)
+            ndata = serial_device.inWaiting()
+            try:
+                rawdata_tmp = serial_device.read(ndata)
+            except Exception as e:
+                print(e)
+                # print('rawdata_tmp', rawdata_tmp)
+
+            data = {}
+            print('SET TEMP', rawdata_tmp)
+            try:
+                rawstr = rawdata_tmp.decode('UTF-8')
+                temp_set = float(rawstr.split()[1])
+                data['temp_set'] = temp_set
+            except:
+                logger.warning('Could not parse String:{}'.format(rawstr), exc_info=True)
+                temp_set = None
+
+
+            # And now the real temperature
+            READ_TEMP_COM = b'$1RVAR100 \r'
+            print('Writing', READ_TEMP_COM)
+            serial_device.write(READ_TEMP_COM)
+            time.sleep(0.1)
+            ndata = serial_device.inWaiting()
+            try:
+                rawdata_tmp = serial_device.read(ndata)
+            except Exception as e:
+                print(e)
+                #print('rawdata_tmp', rawdata_tmp)
+
+            print('READ TEMP', rawdata_tmp)
+            #b'*1 +0023.18\r'
+
+            try:
+                rawstr = rawdata_tmp.decode('UTF-8')
+                temp = float(rawstr.split()[1])
+                data['temp'] = temp
+            except:
+                logger.warning('Could not parse String:{}'.format(rawstr),exc_info=True)
+                temp = None
+
+
+            dataqueue.put(data)
             t_update = time.time()
+
             
                 
 
@@ -203,10 +203,13 @@ class initDeviceWidget(QtWidgets.QWidget):
         self._combo_serial_devices = QtWidgets.QComboBox()
         #self._combo_serial_devices.currentIndexChanged.connect(self._serial_device_changed)
         self._combo_serial_baud = QtWidgets.QComboBox()
-        for b in baud:
+        index_baud = 4
+        for ib,b in enumerate(baud):
+            if b == self.device.custom_config.baud:
+                index_baud = ib
             self._combo_serial_baud.addItem(str(b))
 
-        self._combo_serial_baud.setCurrentIndex(4)
+        self._combo_serial_baud.setCurrentIndex(index_baud)
         # creating a line edit
         edit = QtWidgets.QLineEdit(self)
         onlyInt = QtGui.QIntValidator()
@@ -349,37 +352,35 @@ class initDeviceWidget(QtWidgets.QWidget):
         #self._combo_serial_baud.setEnabled(True)
         #self._combo_serial_devices.setEnabled(True)      
 
-
-
 class displayDeviceWidget(QtWidgets.QWidget):
     def __init__(self,device=None):
         super(QtWidgets.QWidget, self).__init__()
-        layout        = QtWidgets.QVBoxLayout(self)
-        hlayout        = QtWidgets.QHBoxLayout()
+        layout = QtWidgets.QVBoxLayout(self)
+        hlayout = QtWidgets.QHBoxLayout()
+        self.tempSpinBox = QtWidgets.QDoubleSpinBox()
+        self.tempSpinBox.setValue(10)
+        self.buttonSendcom = QtWidgets.QPushButton('Send')
+        self.buttonSendcom.clicked.connect(self.sendcom_clicked)
+        config = XYplotWidget.configXYplot()
         self.device = device
-        self.bytes_read = QtWidgets.QLabel('Bytes read: ')
-        self.lines_read = QtWidgets.QLabel('Lines read: ')
-        self.text     = QtWidgets.QPlainTextEdit(self)
-        self.text.setReadOnly(True)
-        self.text.setMaximumBlockCount(10000)
-        hlayout.addWidget(self.bytes_read)
-        hlayout.addWidget(self.lines_read)
+        self.plotWidget = XYplotWidget.XYplot(config=config, redvypr_device=self.device)
+        self.plotWidget.set_line(0,y_addr='/k:temp',name='leitenberger')
+        self.plotWidget.config.lines[0].unit = 'degC'
+        self.plotWidget.add_line(y_addr='/k:temp_set',color='black',name='leitenberger')
+        self.plotWidget.config.lines[1].unit = 'degC'
+        hlayout.addWidget(self.tempSpinBox)
+        hlayout.addWidget(self.buttonSendcom)
         layout.addLayout(hlayout)
-        layout.addWidget(self.text)
+        layout.addWidget(self.plotWidget)
+        layout.addStretch()
 
+    def sendcom_clicked(self):
+        print('Sending command')
+        temp = self.tempSpinBox.value()
+        self.device.thread_command('set',data={'temp':temp})
     def update(self,data):
         funcname = __name__ + '.update():'
-        #print('data',data)
-        try:
-            bstr = "Bytes read: {:d}".format(data['bytes_read'])
-            lstr = "Sentences read: {:d}".format(data['sentences_read'])
-            self.bytes_read.setText(bstr)
-            self.lines_read.setText(lstr)
-        except Exception as e:
-            logger.exception(e)
-        try:
-            self.text.insertPlainText(str(data['data']))
-            self.text.insertPlainText('\n')
-        except Exception as e:
-            logger.debug(funcname,exc_info=True)
+        print('data',data)
+        self.plotWidget.update_plot(data)
+
         
