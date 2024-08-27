@@ -426,7 +426,7 @@ class displayDeviceWidget(QtWidgets.QWidget):
         self.device.thread_command('set',data={'temp':temp})
     def update_data(self,data):
         funcname = __name__ + '.update():'
-        print('data',data)
+        #print('data',data)
         self.plotWidget.update_plot(data)
 
         
