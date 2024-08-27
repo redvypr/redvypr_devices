@@ -121,6 +121,7 @@ def start(device_info, config={}, dataqueue=None, datainqueue=None, statusqueue=
                         # print('rawdata_tmp', rawdata_tmp)
 
         if((time.time() - t_update) > dt_update):
+            # Read the set temperature value
             READ_SET_TEMP_COM = b'$1RVAR0 \r'
             print('Writing', READ_SET_TEMP_COM)
             serial_device.write(READ_SET_TEMP_COM)
@@ -166,7 +167,52 @@ def start(device_info, config={}, dataqueue=None, datainqueue=None, statusqueue=
                 logger.warning('Could not parse String:{}'.format(rawstr),exc_info=True)
                 temp = None
 
+            # Read the symbol of steadiness
+            READ_TEMP_COM = b'$1RVAR29 \r'
+            print('Writing', READ_TEMP_COM)
+            serial_device.write(READ_TEMP_COM)
+            time.sleep(0.1)
+            ndata = serial_device.inWaiting()
+            try:
+                rawdata_tmp = serial_device.read(ndata)
+            except Exception as e:
+                print(e)
+                # print('rawdata_tmp', rawdata_tmp)
 
+            print('READ Steadiness', rawdata_tmp)
+            # b'*1 1\r'
+
+            try:
+                rawstr = rawdata_tmp.decode('UTF-8')
+                steady = int(rawstr.split()[1])
+                data['temp_steady'] = steady
+            except:
+                logger.warning('Could not parse String:{}'.format(rawstr), exc_info=True)
+
+            # Read the stability range
+            READ_TEMP_COM = b'$1RVAR28 \r'
+            print('Writing', READ_TEMP_COM)
+            serial_device.write(READ_TEMP_COM)
+            time.sleep(0.1)
+            ndata = serial_device.inWaiting()
+            try:
+                rawdata_tmp = serial_device.read(ndata)
+            except Exception as e:
+                print(e)
+                # print('rawdata_tmp', rawdata_tmp)
+
+            print('READ Stability', rawdata_tmp)
+            # b'*1 1\r'
+
+            try:
+                rawstr = rawdata_tmp.decode('UTF-8')
+                stability = float(rawstr.split()[1])
+                data['temp_stability'] = stability
+            except:
+                logger.warning('Could not parse String:{}'.format(rawstr), exc_info=True)
+
+
+            print('Data',data)
             dataqueue.put(data)
             t_update = time.time()
 
@@ -246,7 +292,7 @@ class initDeviceWidget(QtWidgets.QWidget):
 
         #How to differentiate packets
         self._packet_ident_lab = QtWidgets.QLabel('Packet identification')
-        self._packet_ident     = QtWidgets.QComboBox()
+        self._packet_ident = QtWidgets.QComboBox()
         self._packet_ident.addItem('newline \\n')
         self._packet_ident.addItem('newline \\r\\n')
         self._packet_ident.addItem('None')
@@ -378,7 +424,7 @@ class displayDeviceWidget(QtWidgets.QWidget):
         print('Sending command')
         temp = self.tempSpinBox.value()
         self.device.thread_command('set',data={'temp':temp})
-    def update(self,data):
+    def update_data(self,data):
         funcname = __name__ + '.update():'
         print('data',data)
         self.plotWidget.update_plot(data)
