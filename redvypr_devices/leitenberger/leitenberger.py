@@ -1,7 +1,7 @@
 import datetime
 import logging
 import queue
-from PyQt5 import QtWidgets, QtCore, QtGui
+from PyQt6 import QtWidgets, QtCore, QtGui
 import time
 import numpy as np
 import serial
@@ -10,7 +10,7 @@ import logging
 import sys
 import pydantic
 from redvypr.data_packets import check_for_command
-from redvypr.devices.plot import XYplotWidget
+from redvypr.devices.plot import XYPlotWidget
 #from redvypr.redvypr_packet_statistic import do_data_statistics, create_data_statistic_dict
 
 
@@ -88,14 +88,18 @@ def start(device_info, config={}, dataqueue=None, datainqueue=None, statusqueue=
         # TODO, here commands could be send as well
         try:
             data = datainqueue.get(block=False)
+            print("Leitenberger: Got data", data)
         except:
             data = None
+
+
         if (data is not None):
             command = check_for_command(data, thread_uuid=device_info['thread_uuid'])
-            logger.debug('Got a command: {:s}'.format(str(data)))
+
 
             if (command is not None):
-                print('Command', command)
+                logger.debug('Got a command: {:s}'.format(str(data)))
+                #print('Command', command)
                 if command == 'stop':
                     serial_device.close()
                     sstr = funcname + ': Command is for me: {:s}'.format(str(command))
@@ -287,28 +291,15 @@ class initDeviceWidget(QtWidgets.QWidget):
 
 
         # Check for serial devices and list them
-        for comport in serial.tools.list_ports.comports():
+        comports_all = serial.tools.list_ports.comports()
+        index_device = len(comports_all)-1
+        for ib,comport in enumerate(comports_all):
+            if comport == self.device.custom_config.comport:
+                index_device = ib
             self._combo_serial_devices.addItem(str(comport.device))
 
-        #How to differentiate packets
-        self._packet_ident_lab = QtWidgets.QLabel('Packet identification')
-        self._packet_ident = QtWidgets.QComboBox()
-        self._packet_ident.addItem('newline \\n')
-        self._packet_ident.addItem('newline \\r\\n')
-        self._packet_ident.addItem('None')
-        # Max packetsize
-        self._packet_size_lab   = QtWidgets.QLabel("Maximum packet size")
-        self._packet_size_lab.setToolTip('The number of received bytes after which a packet is sent.\n Add 0 for no size check')
-        onlyInt = QtGui.QIntValidator()
-        self._packet_size       = QtWidgets.QLineEdit()
-        self._packet_size.setValidator(onlyInt)
-        self._packet_size.setText('0')
-        #self.packet_ident
+        self._combo_serial_devices.setCurrentIndex(index_device)
 
-        layout.addWidget(self._packet_ident,0,1)
-        layout.addWidget(self._packet_ident_lab,0,0)
-        layout.addWidget(self._packet_size_lab,0,2)
-        layout.addWidget(self._packet_size,0,3)
         layout.addWidget(QtWidgets.QLabel('Serial device'),1,0)
         layout.addWidget(self._combo_serial_devices,2,0)
         layout.addWidget(QtWidgets.QLabel('Baud'),1,1)
@@ -405,11 +396,13 @@ class displayDeviceWidget(QtWidgets.QWidget):
         hlayout = QtWidgets.QHBoxLayout()
         self.tempSpinBox = QtWidgets.QDoubleSpinBox()
         self.tempSpinBox.setValue(10)
+        self.tempSpinBox.setMinimum(-100.0)
+        self.tempSpinBox.setMaximum(200.0)
         self.buttonSendcom = QtWidgets.QPushButton('Send')
         self.buttonSendcom.clicked.connect(self.sendcom_clicked)
-        config = XYplotWidget.configXYplot()
+        config = XYPlotWidget.ConfigXYplot(automatic_subscription=False)
         self.device = device
-        self.plotWidget = XYplotWidget.XYplot(config=config, redvypr_device=self.device)
+        self.plotWidget = XYPlotWidget.XYPlotWidget(config=config, redvypr_device=self.device)
         self.plotWidget.set_line(0,y_addr='/k:temp',name='leitenberger')
         self.plotWidget.config.lines[0].unit = 'degC'
         self.plotWidget.add_line(y_addr='/k:temp_set',color='black',name='leitenberger')
@@ -426,7 +419,7 @@ class displayDeviceWidget(QtWidgets.QWidget):
         self.device.thread_command('set',data={'temp':temp})
     def update_data(self,data):
         funcname = __name__ + '.update():'
-        #print('data',data)
+        #print('Got data',data)
         self.plotWidget.update_plot(data)
 
         
