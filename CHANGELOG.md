@@ -4,7 +4,7 @@ redvypr devices changelog
 
 ---
 
-## [unreleased] 
+## [0.2.0]  - 2026-04-02
 
 ### Added
 - sea_sun_tech
